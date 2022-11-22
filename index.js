@@ -1,4 +1,5 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const cors = require('cors');
 require('dotenv').config();
@@ -13,6 +14,25 @@ app.use(express.json());
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.fmeaiip.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
 
+// middle tare:
+function verifyJWT(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        return res.status(401).send({ message: 'UnAuthorization' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    // console.log(token);
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+        if (err) {
+            return res.status(403).send({ message: 'Forbidden access' });
+        }
+        req.decoded = decoded;
+        // console.log(decoded.email);
+        next();
+    });
+
+}
 
 async function run() {
 
@@ -54,26 +74,39 @@ async function run() {
 
         })
 
+
+
+
         // get patient informational:
-        app.get('/booking', async (req, res) => {
+        app.get('/booking', verifyJWT, async (req, res) => {
             const patient = req.query.patient;
-            const query = { patient: patient };
-            const bookings = await bookingCollection.find(query).toArray()
-            res.send(bookings);
+            const decodedEmail = req.decoded.email;
+            if (patient === decodedEmail) {
+                const query = { patient: patient };
+                const bookings = await bookingCollection.find(query).toArray();
+                 return res.send(bookings);
+            }else{
+              return res.status(403).send({message:'forbidden access'});
+            }
+            // console.log(decodedEmail);
+
+           
         })
-        
+
+
 
         //all put api :
-        app.put('/user/:email', async(req,res)=>{
-
-            const email  = req.params.email;
-            const filter = {email:email};
-            const options  = {upsert:true};
+        app.put('/user/:email', async (req, res) => {
+            const email = req.params.email;
+            const user = req.body;
+            const filter = { email: email };
+            const options = { upsert: true };
             const updateDoc = {
-                $set : user,
+                $set: user,
             };
-            const result = await  usersCollection.updateOne(filter,updateDoc,options);
-            res.send(result);
+            const result = await usersCollection.updateOne(filter, updateDoc, options);
+            const token = jwt.sign({ email: email }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1d' })
+            res.send({ result, accessToken: token });
 
         })
 
